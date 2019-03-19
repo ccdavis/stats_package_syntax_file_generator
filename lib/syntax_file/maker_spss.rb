@@ -186,6 +186,7 @@ end
 
 def var_fmt (var)
     return ' (a)' if var.is_string_var
+	return ' (6) ' if var.is_double_var
     return '' unless var.implied_decimals > 0
     return ' (' + var.implied_decimals.to_s + ')'
 end
