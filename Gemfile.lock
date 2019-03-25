@@ -1,7 +1,7 @@
 PATH
   remote: .
   specs:
-    stats_package_syntax_file_generator (1.1.0)
+    stats_package_syntax_file_generator (1.1.4)
 
 GEM
   remote: http://rubygems.org/
@@ -18,3 +18,6 @@ DEPENDENCIES
   rake
   stats_package_syntax_file_generator!
   test-unit
+
+BUNDLED WITH
+   1.16.1
