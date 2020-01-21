@@ -1,0 +1,221 @@
+args      = ARGV.join(' ')
+
+# This script provides a front-end for the stats_package_syntax_file_generator gem.
+
+require 'optparse'
+require 'ostruct'
+require 'fileutils'
+require 'rubygems'
+require 'yaml'
+require_relative  '../lib/stats_package_syntax_file_generator.rb'
+
+def main
+    opts = check_command_line_args
+    sfc = SyntaxFile::Controller.new(:yaml_files => opts.yaml)
+    sfc.generate_syntax_files
+    # XXX roll back post-processing until we are READY ready
+    if opts.gzip_support
+        post_process_for_gz(opts.yaml[0])
+    end
+end
+
+def post_process_for_gz(f)
+    y = YAML.load_file(f)
+    # are we doing spss?
+    if y['output_formats'].include?('spss')
+        make_syntax_file_gz_capable(y, '.sps', 'gzsps.pl')
+    end
+    # are we doing stata?
+    if y['output_formats'].include?('stata')
+        make_syntax_file_gz_capable(y, '.do', 'gzdo.pl')
+    end
+    # do we end in .dat.*? if so, rename
+    if y['data_file_name'].include?('.dat.')
+        strip_dat_extension(y)
+    end
+end
+
+def construct_stat_file_path(y, suffix)
+    stat_file_basename = File.basename(y["data_file_name"], ".*")
+    stat_file_basename = stat_file_basename + suffix
+    stat_file_path = File.join(y["output_dir_name"], stat_file_basename)
+    stat_file_path
+end
+
+def strip_dat_extension(y)
+    suffixes = [ '.do', '.sps', '.sas' ]
+    suffixes.each { |suffix|
+        this_stat_file = construct_stat_file_path(y, suffix)
+        if File.file?(this_stat_file)
+            stripped = this_stat_file.dup
+            stripped = stripped.sub! '.dat', ''
+            File.rename(this_stat_file, stripped)
+            puts "Renamed " + this_stat_file + " to " + stripped
+        end
+    }
+end
+
+def make_syntax_file_gz_capable(y, suffix, external_prog)
+    stat_file_path = construct_stat_file_path(y, suffix)
+    script_fix = "/pkg/ipums/programming/perl_ipums/" + external_prog
+    cmd = script_fix + " " + stat_file_path
+    convert_success = system( cmd )
+    if convert_success then
+        puts stat_file_path + " converted to give support for either .dat or .gz data"
+    end
+end
+
+# if file is iso-8859-1 (which is what the VBA macro outputs), convert it to utf-8
+def convert_yaml_to_utf8(convert_me)
+	iconv = '/usr/bin/iconv'
+	temp = '/tmp/temp.yaml'
+
+	output = `/usr/bin/file -i #{convert_me}`
+	charset = /charset=(.*?)$/.match(output).captures
+
+	if charset[0] == "iso-8859-1" then
+		# copy convert_me to temp
+		FileUtils.cp convert_me, temp
+		# convert temp to utf-8 and overwrite convert_me
+		print `#{iconv} -f iso-8859-1 -t utf-8 #{temp} > #{convert_me}`
+		# remove temp
+		FileUtils.rm temp
+	end
+end
+
+def check_command_line_args
+    msg_version = 'SyntaxFile::Controller version ' + SyntaxFile::Controller::VERSION
+    msg_usage   = "\nUsage: #{$0} YAML_FILE [options]\n\n"
+
+    opts = OpenStruct.new
+    opts.version       = false
+    opts.help          = false
+    opts.extended_help = false
+    opts.gzip_support  = false
+    opts.yaml          = []
+
+    parser = OptionParser.new do |op|
+        op.banner = msg_usage
+        op.on_tail('-h', '--help', "Basic help."){
+            opts.help = true
+        }
+        op.on_tail('-e', '--extended_help', "Details on YAML attributes."){
+            opts.extended_help = true
+            opts.help = true
+        }
+        op.on_tail(      '--version', "Program version."){
+            opts.version = true
+        }
+        op.on_tail('--gzip_support', "Post-process syntax files to support gzipped data."){
+            opts.gzip_support = true
+        }
+    end
+    parser.parse! rescue quit('Invalid option.', '', parser)
+
+    if opts.help
+        extended_help = opts.extended_help ? DATA.readlines : []
+        quit(parser, '', basic_help, extended_help)
+    end
+    quit(msg_version)  if opts.version
+
+    quit(parser) if ARGV.size != 1
+    opts.yaml = Array.new(ARGV)
+    convert_yaml_to_utf8(opts.yaml[0])
+    quit('Invalid YAML file: ' + opts.yaml[0], '', parser) unless File.file? opts.yaml[0]
+
+    opts
+end
+
+def basic_help
+    [
+        'This program produces statistical package syntax files for SAS, SPSS, and Stata.',
+        'Additionally, it can also produce schema files for Stat/Transfer (STS files).', 
+        'The variable names, locations, labels, and other metadata needed by the program',
+        'are supplied via one YAML file',
+        '',
+        'A user can edit the YAML file to alter the behavior of the program. The YAML ',
+        'file has three broad classes of information -- controller attributes, variable ',
+        'attributes, and value attributes. Typical use involves edits to the controller ',
+        'attributes, not variable or value attributes.',
+    ]
+end
+
+def quit (*msg)
+    puts msg
+    exit
+end
+
+main()
+
+__END__
+
+Controller attributes:
+
+    project                    Project name: atus|cps|ihis|ipumsi|napp|usa.
+
+    caller                     Creator of YAML: vb|dcp|rdcp|web_app.
+
+    data_dir_name              Path where the data file resides.
+
+    data_file_name             Data file name.
+
+    output_formats             List of syntax types: sas, spss, sts, and stata.
+
+    output_dir_name            Path where syntax files should be written.
+
+    output_file_stem           A sprintf() format for syntax file names.
+                               The format takes one parameter (%s), the 
+                               data file stem.
+
+    output_overwrite           Whether to overwrite syntax files that exist.
+
+    data_structure             Data file structure: rect|hier.
+
+    record_types               List of the record type values. For example:
+                               ['H', 'P']. If the rectangularize option is
+                               used, the values must be listed in
+                               hierarchical order.
+
+    record_type_var_name       Name of the record type variable -- for
+                               example, RECTYPE.
+
+    rectangularize             If true, syntax files will be set up to read
+                               a hierarchical data file, rectangularizing
+                               the values down to the last record type.
+
+    all_vars_as_string         If true, the syntax file will impose a string
+                               format on all variables.
+
+    select_vars_by_record_type If true, only common variables and variables 
+                               belonging to the record types explicitly 
+                               declared by the record_types attribute will be 
+                               included in the syntax files.
+
+Variable attributes:
+
+    name              Name or mnemonic.
+
+    label             Label.
+
+    start_column      Start column.
+
+    width             Width.
+
+    is_string_var     If true, the variable is read as a string.
+
+    is_common_var     If true, the variable exists on all record types.
+
+    record_type       Variable's record type, expressed as a value
+                      For example: H or P.
+
+    implied_decimals  Number of implied digits after decimal point.
+
+    suppress_labels   If true, value labels are suppressed in syntax.
+
+Value attributes:
+
+    value             Value.
+
+    label             Label.
+
+    is_missing_value  Whether the value is a missing value (not supported).

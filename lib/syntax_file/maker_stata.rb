@@ -219,7 +219,7 @@ def syn_display_format
 		elsif  var.is_double_var
 			sprintf(@general_display_format, v, var.width, var.implied_decimals)
 		else
-			sprintf(@general_display_format, v, var.width, 0)
+			sprintf(@integer_display_format, v, var.width, 0)
 		end
 			
 	formatting
