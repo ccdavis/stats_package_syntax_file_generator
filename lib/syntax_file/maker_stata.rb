@@ -17,7 +17,9 @@ def initialize (sfc, syntax_type)
     @infix_format       = "%#{mx_col + mx_var + 4}s"
     @replace_format     = "replace %-#{mx_var}s = %-#{mx_var}s / %d"
     @fixed_point_display_format     = "format %-#{mx_var}s %%%d.%df"
-	@general_display_format = "format %-#{mx_var}s %%%d.%dg"
+    @general_display_format = "format %-#{mx_var}s %%%d.%dg"
+    @integer_display_format = "format %-#{mx_var}s %%%d.%df"
+	
 	
     @cmd_end            = ''
     @cmd_continue       = ' ///'
@@ -206,13 +208,21 @@ def syn_display_format
     var_list.map { |var|
         v = var.name.downcase
 		
-		# If implied decimals set, it means we know exactly how much precision
-		# to show. Otherwise we go with the underlying value and the 'g' (general) formatting rules in Stata
-        formatting = var.implied_decimals > 0 ?
-			sprintf(@fixed_point_display_format, v, var.width, var.implied_decimals) :
+	# If implied decimals set, it means we know exactly how much precision
+	# to show. 
+	# Otherwise we go with the underlying value and the 'g' (general) formatting rules in Stata
+	# when the variable is a double float in our metadata, or use .0f for formatting if the
+	# number is a integer in our metadata: In Stata you store large integer type data in 
+	# 'double' or 'long double' type variables. It's confusing.
+        formatting = if var.implied_decimals > 0 
+			sprintf(@fixed_point_display_format, v, var.width, var.implied_decimals) 
+		elsif  var.is_double_var
 			sprintf(@general_display_format, v, var.width, var.implied_decimals)
+		else
+			sprintf(@general_display_format, v, var.width, 0)
+		end
 			
-		formatting
+	formatting
     }
 end
 
